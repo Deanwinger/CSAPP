@@ -33,6 +33,28 @@ int main(int argc, char **argv)
 	}
 }
 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
+{
+	char buf[MAXLINE], body[MAXLINE];
+	//build the http response body
+	sprintf(body, "<html><title>Tiny Error</title>");
+	sprintf(body, "%<body bgcolor=""ffffff"">\r\n", body);
+	sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+	sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+	sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
+
+	// print the HTTP response
+	sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+	Rio_writen(fd, buf, strlen(buf));
+	sprintf(buf, "Content-type: text/html\r\n");
+	Rio_writen(fd, buf, strlen(buf));
+	sprintf(buf, "Content-length: %d\r\n\r\n", (int)(strlen(body)));
+	Rio_writen(fd, buf, strlen(buf));
+	Rio_writen(fd, buf, strlen(body));
+
+
+}
+
 void doit(int fd)
 {
 	int is_static;
@@ -55,5 +77,72 @@ void doit(int fd)
 	read_requesthdrs(&rio);
 	// parse uri from GET request
 	is_static = parse_uri(uri, filename, cgiargs);
+	if (stat(filename, &stat) < 0){
+		clienterror(fd, method, "404", "Not found",
+			"Tiny could not find this file.");
+		return;
+	}
+
+	if (is_static){
+		if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)){
+			clienterror(fd, method, "403", "Forbidden",
+			"Tiny could not read this file.");
+		}
+		serve_static(fd, filename, sbuf.st_size);
+	}
+	else{
+		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)){
+			clienterror(fd, method, "403", "Forbidden",
+			"Tiny could not run the CGI program.");
+		}
+		serve_dynamic(fd, filename, cgiargs);
+	}
+
+	// parse uri from GET request 
+
 	
+}
+
+
+void read_requesthdrs(rio_t *rp)
+{
+	char buf[MAXLINE];
+
+	Rio_readlineb(rp, buf, MAXLINE);
+	while(strcmp(buf, "\r\n")){
+		Rio_readlineb(rp, buf, MAXLINE);
+		printf("%s", buf);
+	}
+	return;
+}
+
+parse_uri(char *uri, char *filename, char *cgiargs)
+{
+	char *ptr;
+	if (！strstr(uri, "cgi-bin")){
+		/* code */
+		strcpy(cgiargs, "");
+		strcpy(filename, ".");
+		strcat(filename, uri);
+		if (uri[strlen(uri) - 1] == '/')
+		{
+			/* code */
+			strcat(filename, "home.html");
+			return 1;
+		}
+
+	}
+	else{
+		ptr = index(uri, "?");
+		if (ptr){
+			/* code */
+			strcpy(cgiargs, ptr+1);
+			*ptr = '\0';
+		}
+		else
+			strcpy(cgiargs, "");
+		strcpy(filename, "");
+		strcat(filename, ".");
+		return 0;
+	}
 }
